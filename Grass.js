@@ -41,8 +41,8 @@ export class GrassSystem {
     this.baseGeometry = createGrassGeometry();
     this.initMaterials();
 
-    // Create Single Grass InstancedMesh
-    this.initGrass();
+    // Create Chunked Grass System for Frustum Culling & Density
+    this.initChunks();
   }
 
   initTrailSystem() {
@@ -188,68 +188,87 @@ export class GrassSystem {
     });
   }
 
-  initGrass() {
+  initChunks() {
     const terrainSize = 200;
-    // Total instances target. 
-    // 250,000 instances allows for a single draw call with good density 
-    // when combined with wider blades (optimized in Geometry).
-    const instanceCount = 250000; 
-    
-    // Create single InstancedMesh
-    this.mesh = new THREE.InstancedMesh(this.baseGeometry, this.baseMaterial, instanceCount);
-    
-    // Optimization: Matrix buffer is static after generation
-    this.mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-    
-    // Enable shadows for the entire field
-    this.mesh.castShadow = true;
-    this.mesh.receiveShadow = true;
-    this.mesh.customDepthMaterial = this.baseDepthMaterial;
-    
+    const chunkSize = 20; 
+    // Higher density: ~40 instances per unit sq (was ~6)
+    // 20x20 chunk = 400 area * 40 = 16,000 instances per chunk
+    // 100 chunks = 1.6 million instances total (Culled by frustum)
+    const density = 45; 
+
+    // Define generic bounding sphere for a 20x20 chunk centered at 0,0,0
+    // Radius approx 15 covers the square diagonal
+    this.baseGeometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1, 0), 16.0);
+
     const dummy = new THREE.Object3D();
     const color = new THREE.Color();
-    
-    let idx = 0;
-    while(idx < instanceCount) {
-      // Distribute randomly across entire terrain
-      const x = (Math.random() - 0.5) * terrainSize;
-      const z = (Math.random() - 0.5) * terrainSize;
-      
-      const y = this.getTerrainHeight(x, z);
-      dummy.position.set(x, y, z);
-      
-      dummy.rotation.y = Math.random() * Math.PI * 2;
-      dummy.rotation.x = (Math.random() - 0.5) * 0.2; 
-      dummy.rotation.z = (Math.random() - 0.5) * 0.2;
 
-      // Region based height
-      const region = noise(x * 0.015, z * 0.015); 
-      const tallFactor = THREE.MathUtils.smoothstep(region, 0.0, 0.8);
-      
-      // Height variation
-      const hScale = 0.4 + Math.random() * 0.4 + (tallFactor * 0.8);
-      
-      // Width variation
-      const wScale = 0.5 + Math.random() * 0.5;
-      
-      dummy.scale.set(wScale, hScale, wScale);
-      dummy.updateMatrix();
-      this.mesh.setMatrixAt(idx, dummy.matrix);
-      
-      // Color Variation
-      const colorNoise = noise(x * 0.05, z * 0.05); 
-      if (colorNoise > 0.6) {
-         color.setHex(0x7a8a4b); 
-      } else {
-         const v = 0.5 + Math.random() * 0.4;
-         color.setRGB(v * 0.6, v * 0.9, v * 0.4); 
+    for (let x = -terrainSize / 2; x < terrainSize / 2; x += chunkSize) {
+      for (let z = -terrainSize / 2; z < terrainSize / 2; z += chunkSize) {
+        
+        const centerX = x + chunkSize / 2;
+        const centerZ = z + chunkSize / 2;
+        
+        const area = chunkSize * chunkSize;
+        const instanceCount = Math.floor(area * density);
+        
+        const mesh = new THREE.InstancedMesh(this.baseGeometry, this.baseMaterial, instanceCount);
+        
+        // Offset the mesh to the center of the chunk
+        mesh.position.set(centerX, 0, centerZ);
+        
+        mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.customDepthMaterial = this.baseDepthMaterial;
+        
+        let idx = 0;
+        while(idx < instanceCount) {
+          // Local position within chunk
+          const lx = (Math.random() - 0.5) * chunkSize;
+          const lz = (Math.random() - 0.5) * chunkSize;
+          
+          // World position for terrain height lookup
+          const wx = centerX + lx;
+          const wz = centerZ + lz;
+          
+          const y = this.getTerrainHeight(wx, wz);
+          
+          // Position relative to mesh (mesh is at y=0)
+          dummy.position.set(lx, y, lz);
+          
+          dummy.rotation.y = Math.random() * Math.PI * 2;
+          // Random slight tilt
+          dummy.rotation.x = (Math.random() - 0.5) * 0.3; 
+          dummy.rotation.z = (Math.random() - 0.5) * 0.3;
+
+          // Region based height variation
+          const region = noise(wx * 0.015, wz * 0.015); 
+          const tallFactor = THREE.MathUtils.smoothstep(region, 0.0, 0.8);
+          
+          const hScale = 0.4 + Math.random() * 0.5 + (tallFactor * 0.7);
+          const wScale = 0.5 + Math.random() * 0.5;
+          
+          dummy.scale.set(wScale, hScale, wScale);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(idx, dummy.matrix);
+          
+          // Color Variation
+          const colorNoise = noise(wx * 0.05, wz * 0.05); 
+          if (colorNoise > 0.6) {
+             color.setHex(0x7a8a4b); 
+          } else {
+             const v = 0.5 + Math.random() * 0.4;
+             color.setRGB(v * 0.6, v * 0.9, v * 0.4); 
+          }
+          mesh.setColorAt(idx, color);
+          
+          idx++;
+        }
+        
+        this.group.add(mesh);
       }
-      this.mesh.setColorAt(idx, color);
-      
-      idx++;
     }
-    
-    this.group.add(this.mesh);
   }
 
   update(time, dt, playerPosition, camera, sunDirection) {

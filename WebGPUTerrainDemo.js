@@ -86,8 +86,8 @@ export default function WebGPUTerrainDemo() {
         sun.shadow.camera.near = 0.5;
         sun.shadow.camera.far = 200;
         
-        // Increased shadow camera coverage for better LOD support
-        const shadowSize = 100;
+        // Tighter shadow camera for high detail shadows near player
+        const shadowSize = 45;
         sun.shadow.camera.left = -shadowSize;
         sun.shadow.camera.right = shadowSize;
         sun.shadow.camera.top = shadowSize;
