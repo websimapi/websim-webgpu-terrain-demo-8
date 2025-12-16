@@ -45,9 +45,10 @@ export const GRASS_VERTEX_LOGIC = `
   
   // 2. Player Immediate Presence (Proximity mask)
   float dist = distance(worldPos.xz, uPlayerPos.xz);
-  float playerRadius = 0.7;
-  float playerPress = 1.0 - smoothstep(playerRadius * 0.5, playerRadius, dist);
-  playerPress = pow(playerPress, 2.0); // Sharper inner circle
+  float playerRadius = 0.8;
+  // Smoother falloff for "push through" effect rather than sharp cutout
+  float playerPress = 1.0 - smoothstep(playerRadius * 0.2, playerRadius * 1.2, dist);
+  playerPress = pow(playerPress, 1.5); 
   
   // 3. Dynamic Wind Restoration
   // "Wind system continuously applies a restoration force... masked to zero where player is standing."
@@ -62,12 +63,12 @@ export const GRASS_VERTEX_LOGIC = `
   float restorationForce = clamp(stableWind * 0.5 * recoveryMask, 0.0, 0.8);
   
   // Apply restoration to trail:
-  // If wind is strong, effective trail reduces (grass bounces up).
-  // If wind is calm, trail remains flat.
   float effectiveTrail = trailData * (1.0 - restorationForce);
   
-  // Final Crush State: Player weight overrides all recovery
-  float totalCrush = max(playerPress, effectiveTrail);
+  // Final Interaction State
+  // Distinguish between pushing (player) and crushing (trail)
+  // Player press contributes more to rotation, less to flattening
+  float totalCrush = max(playerPress * 0.8, effectiveTrail);
   totalCrush = clamp(totalCrush, 0.0, 1.0);
 
   // --- DISPLACEMENT ---
@@ -92,6 +93,7 @@ export const GRASS_VERTEX_LOGIC = `
   // For old trails, use a stable random direction to prevent jittering artifacts.
   
   vec2 playerPushDir = normalize(worldPos.xz - uPlayerPos.xz);
+  // Avoid zero vector
   if (length(worldPos.xz - uPlayerPos.xz) < 0.01) playerPushDir = vec2(1.0, 0.0);
   
   // Procedural stable direction
@@ -99,11 +101,15 @@ export const GRASS_VERTEX_LOGIC = `
   vec2 randomDir = normalize(vec2(sin(noiseAngle), cos(noiseAngle)));
   
   // Blend direction based on freshness of interaction
+  // Stronger bias towards player direction when player is present
   vec2 finalDir = mix(randomDir, playerPushDir, playerPress);
   vec3 crushAxis = normalize(cross(vec3(0, 1, 0), vec3(finalDir.x, 0, finalDir.y)));
   
   // Rotation Angle
-  float angle = totalCrush * 1.5; // Up to ~85 degrees
+  // Higher angle for player press to simulate "parting" the grass
+  float crushStrength = max(playerPress * 1.2, effectiveTrail);
+  float angle = clamp(crushStrength * 1.6, 0.0, 1.4); // Limit to ~80 deg
+  
   float c = cos(angle);
   float s = sin(angle);
   vec3 v = transformed;
@@ -113,7 +119,9 @@ export const GRASS_VERTEX_LOGIC = `
   transformed = rotated;
   
   // Grounding: Sink slightly when crushed to prevent floating roots
-  transformed.y -= totalCrush * 0.15 * vHeight;
+  // Less sinking for player press (it should look pushed aside), more for trail
+  float sinkAmount = mix(0.2, 0.05, playerPress); 
+  transformed.y -= totalCrush * sinkAmount * vHeight;
   
   // --- NORMALS ---
   #ifndef USE_SHADOWMAP
