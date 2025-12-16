@@ -1,34 +1,84 @@
 import * as THREE from 'three';
 
+export const PLANET_RADIUS = 1200.0;
+
 export function getTerrainHeight(x, z) {
-  return Math.sin(x * 0.05) * Math.cos(z * 0.05) * 3 +
+  // Base Noise
+  const detail = Math.sin(x * 0.05) * Math.cos(z * 0.05) * 3 +
          Math.sin(x * 0.1) * Math.cos(z * 0.1) * 1.5 +
          Math.sin(x * 0.2) * Math.cos(z * 0.2) * 0.5;
+         
+  // Spherical/Planetary Curvature Falloff
+  // y = R - sqrt(R^2 - x^2 - z^2) approx (x^2 + z^2) / 2R
+  const distSq = x*x + z*z;
+  const curvature = distSq / (2.0 * PLANET_RADIUS);
+  
+  return detail - curvature;
+}
+
+export function getTerrainNormal(x, z) {
+    const eps = 0.1;
+    const h = getTerrainHeight(x, z);
+    const hx = getTerrainHeight(x + eps, z);
+    const hz = getTerrainHeight(x, z + eps);
+    
+    // Calculate slope vectors
+    const n = new THREE.Vector3(h - hx, eps, h - hz).normalize();
+    return n;
 }
 
 export function createTerrain(scene) {
-  const terrainGeo = new THREE.PlaneGeometry(200, 200, 128, 128);
-  const vertices = terrainGeo.attributes.position.array;
+  const terrainGroup = new THREE.Group();
+  scene.add(terrainGroup);
   
-  for (let i = 0; i < vertices.length; i += 3) {
-    const x = vertices[i];
-    const y = vertices[i + 1];
-    vertices[i + 2] = getTerrainHeight(x, y);
-  }
-  terrainGeo.computeVertexNormals();
-
-  const terrainMat = new THREE.MeshStandardMaterial({
-    color: 0x2a3f2a, // Darker ground to contrast with grass
-    roughness: 1.0,
-    metalness: 0.0,
+  // Chunk Settings
+  const chunkSize = 100;
+  const chunksX = 3; 
+  const chunksZ = 3;
+  
+  // Create a grid of chunks to satisfy "chunk based map"
+  const geometry = new THREE.PlaneGeometry(chunkSize, chunkSize, 64, 64);
+  const material = new THREE.MeshStandardMaterial({
+    color: 0x2a3f2a,
+    roughness: 0.9,
+    metalness: 0.1,
     flatShading: false
   });
 
-  const terrain = new THREE.Mesh(terrainGeo, terrainMat);
-  terrain.rotation.x = -Math.PI / 2;
-  terrain.receiveShadow = true;
-  scene.add(terrain);
+  for (let cx = -1; cx <= 1; cx++) {
+    for (let cz = -1; cz <= 1; cz++) {
+        const chunkGeo = geometry.clone();
+        const offsetX = cx * chunkSize;
+        const offsetZ = cz * chunkSize;
+        
+        const posAttr = chunkGeo.attributes.position;
+        
+        for (let i = 0; i < posAttr.count; i++) {
+            // Local coords
+            const lx = posAttr.getX(i);
+            const ly = posAttr.getY(i); // This corresponds to World -Z because of rotation later
+            
+            // World coords
+            const wx = lx + offsetX;
+            const wz = -ly + offsetZ; 
+            
+            const height = getTerrainHeight(wx, wz);
+            posAttr.setZ(i, height);
+        }
+        
+        chunkGeo.computeVertexNormals();
+        
+        const mesh = new THREE.Mesh(chunkGeo, material);
+        mesh.position.set(offsetX, 0, offsetZ); // Just X/Z offset
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.receiveShadow = true;
+        
+        // Tag it for raycasting
+        mesh.name = "TerrainChunk";
+        terrainGroup.add(mesh);
+    }
+  }
   
-  return terrain;
+  return terrainGroup;
 }
 

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GRASS_VERTEX_LOGIC } from './GrassShader.js';
 import { createGrassGeometry } from './GrassGeometry.js';
 import { noise, generateWindNoiseTexture } from './GrassUtils.js';
+import { getTerrainNormal } from './Terrain.js';
 
 // removed function noise(x, z) {}
 // removed const GRASS_VERTEX_LOGIC = `...`;
@@ -164,6 +165,27 @@ export class GrassSystem {
           finalColor *= vInstanceColor;
           finalColor *= smoothstep(-0.1, 0.3, vHeight); // AO
           diffuseColor.rgb = finalColor;
+          
+          // --- Lighting Fix ---
+          // Fix darker backside by flipping normal if facing away from view
+          // And bias normal towards Up for stylized "Translucent" look
+          
+          vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+          vec3 faceNormal = normalize(vNormal);
+          
+          // If viewing back-face, flip normal for lighting calc
+          // (Requires gl_FrontFacing usually, but dot product works for planes)
+          if (dot(faceNormal, viewDir) < 0.0) {
+             faceNormal = -faceNormal;
+          }
+          
+          // Mix geometry normal with Up Vector for softer, consistent lighting
+          // This simulates light scattering through the blade
+          vec3 up = vec3(0.0, 1.0, 0.0);
+          vec3 lightNormal = normalize(mix(faceNormal, up, 0.6));
+          
+          // Override the normal used by Three.js lighting
+          normal = lightNormal; 
           `
         );
         
@@ -203,8 +225,11 @@ export class GrassSystem {
     const color = new THREE.Color();
 
     // Spacing for Stratified Sampling (Grid Jitter)
-    // Ensures grass is evenly distributed without intersecting roots
     const step = 1.0 / Math.sqrt(density);
+    
+    // Reusable vectors
+    const up = new THREE.Vector3(0, 1, 0);
+    const alignQuat = new THREE.Quaternion();
 
     for (let x = -terrainSize / 2; x < terrainSize / 2; x += chunkSize) {
       for (let z = -terrainSize / 2; z < terrainSize / 2; z += chunkSize) {
@@ -212,13 +237,10 @@ export class GrassSystem {
         const centerX = x + chunkSize / 2;
         const centerZ = z + chunkSize / 2;
         
-        // Calculate grid size
         const gridSide = Math.floor(chunkSize / step);
         const instanceCount = gridSide * gridSide;
         
         const mesh = new THREE.InstancedMesh(this.baseGeometry, this.baseMaterial, instanceCount);
-        
-        // Offset the mesh to the center of the chunk
         mesh.position.set(centerX, 0, centerZ);
         
         mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
@@ -230,31 +252,29 @@ export class GrassSystem {
         
         for (let ix = 0; ix < gridSide; ix++) {
           for (let iz = 0; iz < gridSide; iz++) {
-             // Local position within chunk
-             // Randomize within the grid cell
              const lx = ((ix + Math.random()) * step) - (chunkSize / 2);
              const lz = ((iz + Math.random()) * step) - (chunkSize / 2);
-             
-             // World position
              const wx = centerX + lx;
              const wz = centerZ + lz;
              
              const y = this.getTerrainHeight(wx, wz);
+             const normal = getTerrainNormal(wx, wz);
              
              dummy.position.set(lx, y, lz);
              
-             // Rotation Flow:
-             // Use noise to align rotation of nearby blades ("Weave")
-             // This reduces chaotic cross-intersections and looks more natural
+             // 1. Align to Terrain Normal (Planet Curvature)
+             alignQuat.setFromUnitVectors(up, normal);
+             dummy.quaternion.copy(alignQuat);
+             
+             // 2. Random Yaw (Rotation around normal)
              const flowNoise = noise(wx * 0.02, wz * 0.02);
-             const baseRot = flowNoise * Math.PI; 
-             dummy.rotation.y = baseRot + (Math.random() - 0.5) * 1.0;
+             const yaw = (flowNoise * Math.PI) + (Math.random() - 0.5) * 1.5;
+             dummy.rotateY(yaw);
+             
+             // 3. Random Tilt (Wind/Variance)
+             dummy.rotateX((Math.random() - 0.5) * 0.3);
+             dummy.rotateZ((Math.random() - 0.5) * 0.3);
 
-             // Random slight tilt
-             dummy.rotation.x = (Math.random() - 0.5) * 0.3; 
-             dummy.rotation.z = (Math.random() - 0.5) * 0.3;
-
-             // Region based height variation
              const region = noise(wx * 0.015, wz * 0.015); 
              const tallFactor = THREE.MathUtils.smoothstep(region, 0.0, 0.8);
              
@@ -265,7 +285,6 @@ export class GrassSystem {
              dummy.updateMatrix();
              mesh.setMatrixAt(idx, dummy.matrix);
              
-             // Color Variation
              const colorNoise = noise(wx * 0.05, wz * 0.05); 
              if (colorNoise > 0.6) {
                 color.setHex(0x7a8a4b); 

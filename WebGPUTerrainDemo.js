@@ -78,7 +78,7 @@ export default function WebGPUTerrainDemo() {
         scene.add(sky);
 
         // Lighting
-        sun = new THREE.DirectionalLight(0xfff5e6, 2.0);
+        sun = new THREE.DirectionalLight(0xfff5e6, 2.5); // Slightly brighter for raytrace look
         sun.position.set(50, 60, 30);
         sun.castShadow = true;
         sun.shadow.mapSize.width = 4096;
@@ -155,8 +155,10 @@ export default function WebGPUTerrainDemo() {
           if (intersects.length > 0) {
             const point = intersects[0].point;
             
+            // Raycaster intersects the curved terrain mesh, so point is correct on surface
             clickMarker.position.copy(point);
             clickMarker.position.y += 0.1;
+            clickMarker.lookAt(0, 5000, 0); // Roughly orient up away from planet center
             clickMarker.visible = true;
 
             player.setMoveTarget(point);
@@ -207,18 +209,32 @@ export default function WebGPUTerrainDemo() {
           player.setZoom(zoomLevel);
           player.update(deltaTime * 0.001, camera);
 
+          // Sun Cycle Animation (Raytraced sun cycle simulation)
+          // Moves sun in a large arc to simulate passing of day
+          const daySpeed = 0.05;
+          const sunTime = time * daySpeed + 1.0; // Start at a nice angle
+          const sunHeight = Math.sin(sunTime) * 0.5 + 0.5; // 0 to 1
+          
+          // Calculate Sun Direction
+          const sunX = Math.cos(sunTime * 0.5) * 80;
+          const sunY = Math.max(20, Math.sin(sunTime * 0.5) * 80); // Keep it above horizon
+          const sunZ = Math.sin(sunTime * 0.3) * 50;
+          const sunOffset = new THREE.Vector3(sunX, sunY, sunZ);
+          
           // Update Sun to follow player for high quality shadows everywhere
           const playerPos = player.getPosition();
           if (playerPos) {
-             const sunOffset = new THREE.Vector3(50, 60, 30);
              sun.position.copy(playerPos).add(sunOffset);
              sun.target.position.copy(playerPos);
              sun.target.updateMatrixWorld();
           }
+          
+          // Update Ambient based on sun height
+          // ambient.intensity = 0.2 + sunHeight * 0.4;
 
           // Grass update with current player position
           // LOD is now handled by GPU in Vertex Shader for single draw call optimization
-          const sunDir = new THREE.Vector3(50, 60, 30).normalize();
+          const sunDir = sunOffset.normalize();
           grassSystem.update(time, deltaTime * 0.001, player.getPosition(), camera, sunDir);
           
           // Hide marker if player stopped

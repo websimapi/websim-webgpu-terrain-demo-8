@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { getTerrainNormal } from './Terrain.js';
 
 export class Player {
   constructor(scene, getTerrainHeight) {
@@ -86,13 +87,31 @@ export class Player {
         this.container.position.add(moveVec);
 
         // Snap to terrain
-        const h = this.getTerrainHeight(this.container.position.x, this.container.position.z);
+        const x = this.container.position.x;
+        const z = this.container.position.z;
+        const h = this.getTerrainHeight(x, z);
         this.container.position.y = h;
+        
+        // --- Planet Alignment ---
+        // 1. Get Normal
+        const normal = getTerrainNormal(x, z);
+        
+        // 2. Align Up vector to Normal while preserving Look Direction
+        // Standard LookAt uses (0,1,0) as up. We need custom.
+        const targetPos = this.moveTarget.clone();
+        targetPos.y = this.getTerrainHeight(targetPos.x, targetPos.z);
+        
+        const lookDir = new THREE.Vector3().subVectors(targetPos, this.container.position).normalize();
+        
+        // Orthogonalize lookDir against normal so looking "forward" follows the curve
+        // Right = look x normal
+        const right = new THREE.Vector3().crossVectors(lookDir, normal).normalize();
+        // New Forward = normal x right
+        const forward = new THREE.Vector3().crossVectors(normal, right).normalize();
+        
+        const m = new THREE.Matrix4().makeBasis(right, normal, forward);
+        this.container.quaternion.setFromRotationMatrix(m);
 
-        // Rotate
-        const lookPos = this.moveTarget.clone();
-        lookPos.y = this.container.position.y;
-        this.container.lookAt(lookPos);
       } else {
         this.moveTarget = null;
         if (this.currentAction !== this.actions.idle) {
@@ -102,8 +121,20 @@ export class Player {
         }
       }
     } else {
-      const h = this.getTerrainHeight(this.container.position.x, this.container.position.z);
+      // Idle alignment
+      const x = this.container.position.x;
+      const z = this.container.position.z;
+      const h = this.getTerrainHeight(x, z);
       this.container.position.y = h;
+      
+      const normal = getTerrainNormal(x, z);
+      
+      // Smoothly align Up to normal without spinning
+      const currentQ = this.container.quaternion.clone();
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(currentQ);
+      
+      const alignQ = new THREE.Quaternion().setFromUnitVectors(up, normal);
+      this.container.quaternion.premultiply(alignQ);
     }
 
     if (camera) this.updateCamera(camera);
