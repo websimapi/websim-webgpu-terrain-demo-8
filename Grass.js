@@ -248,6 +248,11 @@ export class GrassSystem {
         mesh.receiveShadow = true;
         mesh.customDepthMaterial = this.baseDepthMaterial;
         
+        // Prevent Three.js from culling the chunk based on the single blade geometry bounding sphere.
+        // Since we are managing distance culling in the shader and the chunks are large,
+        // we can disable frustum culling or we would need unique geometry bounds per chunk.
+        mesh.frustumCulled = false;
+
         let idx = 0;
         
         for (let ix = 0; ix < gridSide; ix++) {
@@ -298,6 +303,9 @@ export class GrassSystem {
           }
         }
         
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+
         this.group.add(mesh);
       }
     }

@@ -74,10 +74,11 @@ export class Player {
     if (this.moveTarget) {
       const charPos = this.container.position.clone();
       charPos.y = 0;
-      const targetPos = this.moveTarget.clone();
-      targetPos.y = 0;
+      
+      const targetPosFlat = this.moveTarget.clone();
+      targetPosFlat.y = 0;
 
-      const direction = new THREE.Vector3().subVectors(targetPos, charPos);
+      const direction = new THREE.Vector3().subVectors(targetPosFlat, charPos);
       const dist = direction.length();
 
       if (dist > 0.2) {
@@ -98,10 +99,10 @@ export class Player {
         
         // 2. Align Up vector to Normal while preserving Look Direction
         // Standard LookAt uses (0,1,0) as up. We need custom.
-        const targetPos = this.moveTarget.clone();
-        targetPos.y = this.getTerrainHeight(targetPos.x, targetPos.z);
+        const lookTarget = this.moveTarget.clone();
+        lookTarget.y = this.getTerrainHeight(lookTarget.x, lookTarget.z);
         
-        const lookDir = new THREE.Vector3().subVectors(targetPos, this.container.position).normalize();
+        const lookDir = new THREE.Vector3().subVectors(lookTarget, this.container.position).normalize();
         
         // Orthogonalize lookDir against normal so looking "forward" follows the curve
         // Right = look x normal

@@ -150,7 +150,7 @@ export default function WebGPUTerrainDemo() {
           pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
           raycaster.setFromCamera(pointer, camera);
-          const intersects = raycaster.intersectObject(terrain);
+          const intersects = raycaster.intersectObject(terrain, true);
 
           if (intersects.length > 0) {
             const point = intersects[0].point;
